@@ -347,6 +347,7 @@ static const char *video_codec_name;
 double rdftspeed = 0.02;
 static int64_t cursor_last_shown;
 static int cursor_hidden = 0;
+static int show_progress_line = 0;
 #if CONFIG_AVFILTER
 static const char **vfilters_list = NULL;
 static int nb_vfilters = 0;
@@ -1345,20 +1346,7 @@ static int video_open(VideoState *is)
     return 0;
 }
 
-/* display the current picture, if any */
-static void video_display(VideoState *is)
-{
-    if (!is->width)
-        video_open(is);
 
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
-    if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
-        video_audio_display(is);
-    else if (is->video_st)
-        video_image_display(is);
-    SDL_RenderPresent(renderer);
-}
 
 static double get_clock(Clock *c)
 {
@@ -1442,6 +1430,38 @@ static double get_master_clock(VideoState *is)
     }
     return val;
 }
+
+static void video_progress_line_display(VideoState *is) {
+    double d = is->ic->duration / 1.0e6;
+    if (d > 0) {
+        double t = get_master_clock(is);
+        int w = is->width * t / d;
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+        fill_rectangle(0, is->height-1, w, 1);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        fill_rectangle(w, is->height-1, is->width-w, 1);
+    } else {
+        show_progress_line = 0;
+    }
+}
+
+/* display the current picture, if any */
+static void video_display(VideoState *is)
+{
+    if (!is->width)
+        video_open(is);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
+        video_audio_display(is);
+    else if (is->video_st)
+        video_image_display(is);
+    if (show_progress_line)
+        video_progress_line_display(is);
+    SDL_RenderPresent(renderer);
+}
+
 
 static void check_external_clock_speed(VideoState *is) {
    if (is->video_stream >= 0 && is->videoq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES ||
@@ -3338,6 +3358,9 @@ static void event_loop(VideoState *cur_stream)
                 toggle_audio_display(cur_stream);
 #endif
                 break;
+            case SDLK_l:
+                show_progress_line = !show_progress_line;
+                break;
             case SDLK_PAGEUP:
                 if (cur_stream->ic->nb_chapters <= 1) {
                     incr = 600.0;
@@ -3606,6 +3629,7 @@ static const OptionDef options[] = {
 #endif
     { "rdftspeed", OPT_INT | HAS_ARG| OPT_AUDIO | OPT_EXPERT, { &rdftspeed }, "rdft speed", "msecs" },
     { "showmode", HAS_ARG, { .func_arg = opt_show_mode}, "select show mode (0 = video, 1 = waves, 2 = RDFT)", "mode" },
+    { "progress", OPT_BOOL, { &show_progress_line}, "show progress line at the bottom", ""},
     { "i", OPT_BOOL, { &dummy}, "read specified file", "input_file"},
     { "codec", HAS_ARG, { .func_arg = opt_codec}, "force decoder", "decoder_name" },
     { "acodec", HAS_ARG | OPT_STRING | OPT_EXPERT, {    &audio_codec_name }, "force audio decoder",    "decoder_name" },
@@ -3652,6 +3676,7 @@ void show_help_default(const char *opt, const char *arg)
            "c                   cycle program\n"
            "w                   cycle video filters or show modes\n"
            "s                   activate frame-step mode\n"
+           "l                   toggle progress line at the bottom\n"
            "left/right          seek backward/forward 10 seconds or to custom interval if -seek_interval is set\n"
            "down/up             seek backward/forward 1 minute\n"
            "page down/page up   seek backward/forward 10 minutes\n"
